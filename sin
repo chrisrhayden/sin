@@ -1,0 +1,125 @@
+#!/bin/bash
+
+# make a thing to insert the password into the keyring,
+# and write entry's to the secure folder.
+
+# this assumes that both files and names are encrypted
+# with the same pass phrase
+
+editor_opt=()
+DATA_FILE="$HOME/secret"
+DATE_DATA_FILE="$DATA_FILE/daily"
+run_ecryptfs_mount=0
+IN_FILE=0
+
+if [[ ! -f "$HOME/secret/I_AM_A_SECRET" ]]; then
+    run_ecryptfs_mount=1
+fi
+
+while [[ -n "$1" ]]; do
+    case "$1" in
+        -E|--editor-opt)
+            shift
+            editor_opt+=("$1")
+            ;;
+        -i)
+            IN_FILE=1
+            ;;
+    esac
+    shift
+done
+
+print_end_msg() {
+    printf "\\n\\ndone and no errors I think \\n"
+
+    printf "to mount ecryptfs \\n"
+    printf "use %b mount.ecryptfs_private%b%b secret %b \\n" \
+        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
+
+    printf "and to unmount the fs \\n"
+    printf "use %b umount.ecryptfs_private%b%b secret %b \\n" \
+        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
+}
+
+instert_password() {
+    local user_passwd
+
+    printf "pleas enter the user pass word \\n"
+    read -resp '--> ' user_passwd
+
+    printf "adding pass word to kernel key ring \\n"
+    printf "%s" "$user_passwd" | \
+        ecryptfs-insert-wrapped-passphrase-into-keyring \
+        /home/chris/.ecryptfs/wrapped-passphrase -
+    unset user_passwd
+}
+
+insert_sig() {
+    local key_sig
+
+    printf "enter the key signature from above \\n"
+    read -resp '--> ' key_sig
+
+    echo -e "${key_sig}\\n${key_sig}" >> "$HOME/.ecryptfs/secret.sig"
+    unset key_sig
+}
+
+update_keyring() {
+    instert_password
+
+    insert_sig
+    return 0
+}
+
+set_default_ops() {
+    local writer_file
+
+    writer_file="$HOME/.config/nvim/writing_init.vim"
+
+    if [[ -f "$writer_file" ]]; then
+        editor_opt=("-u" "$writer_file")
+    fi
+}
+
+open_day() {
+    local date_file
+
+    date_file="${DATE_DATA_FILE}/$(date +%a_%F).txt"
+
+
+    if [[ ! -f "$date_file" ]]; then
+        printf "making file %s \\n" "date_file"
+        printf "today is %s \\n" "$(date '+%a %F')" > "$date_file"
+    fi
+
+    "$EDITOR" "${editor_opt[@]}" "$date_file"
+}
+
+open_in_file() {
+    local local_in_file
+
+    local_in_file="$DATA_FILE/in.txt"
+
+    if [[ ! -f "$local_in_file" ]]; then
+        printf "* In File\\n\\n" > "$local_in_file"
+    fi
+
+    "$EDITOR" "${editor_opt[@]}" "$local_in_file"
+}
+
+main() {
+    [[ -d "$DATA_FILE" ]] || mkdir "$DATA_FILE"
+
+    if ((run_ecryptfs_mount)); then
+        update_keyring
+    fi
+
+    if ((IN_FILE)); then
+        open_in_file
+    else
+        open_day
+    fi
+}
+
+set_default_ops
+main
