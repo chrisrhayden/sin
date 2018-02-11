@@ -6,7 +6,7 @@
 # this assumes that both files and names are encrypted
 # with the same pass phrase
 
-editor_opt=()
+EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
 DATA_FILE="$HOME/secret"
 DATE_DATA_FILE="$DATA_FILE/daily"
 run_ecryptfs_mount=0
@@ -20,7 +20,7 @@ while [[ -n "$1" ]]; do
     case "$1" in
         -E|--editor-opt)
             shift
-            editor_opt+=("$1")
+            EDITOR_OPT+=("$1")
             ;;
         -i)
             IN_FILE=1
@@ -29,70 +29,73 @@ while [[ -n "$1" ]]; do
     shift
 done
 
-print_end_msg() {
-    printf "\\n\\ndone and no errors I think \\n"
+password_msg() {
+printf "%bno secret fs mounted%b" "\\033[31m" "\\033[0m"
+cat << __EOF__
+A user password is needed to unwrapp the ecryptfs password,
+so it can bo loaded in to the kernel key ring.
 
-    printf "to mount ecryptfs \\n"
-    printf "use %b mount.ecryptfs_private%b%b secret %b \\n" \
-        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
+then the key signature needs to be add to user file
 
-    printf "and to unmount the fs \\n"
-    printf "use %b umount.ecryptfs_private%b%b secret %b \\n" \
-        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
+just follow the instructions
+
+pleas enter the user password
+__EOF__
 }
 
 instert_password() {
     local user_passwd
 
-    printf "pleas enter the user pass word \\n"
+    password_msg
     read -resp '--> ' user_passwd
 
-    printf "adding pass word to kernel key ring \\n"
     printf "%s" "$user_passwd" | \
         ecryptfs-insert-wrapped-passphrase-into-keyring \
-        /home/chris/.ecryptfs/wrapped-passphrase -
+        /home/chris/.ecryptfs/wrapped-passphrase - || return 1
     unset user_passwd
+    return 0
 }
 
 insert_sig() {
     local key_sig
 
-    printf "enter the key signature from above \\n"
+    printf "\\nenter the key signature from above \\n"
     read -resp '--> ' key_sig
 
-    echo -e "${key_sig}\\n${key_sig}" >> "$HOME/.ecryptfs/secret.sig"
+    echo -e "${key_sig}\\n${key_sig}" > "$HOME/.ecryptfs/secret.sig" || \
+        return 1
     unset key_sig
-}
-
-update_keyring() {
-    instert_password
-
-    insert_sig
     return 0
 }
 
-set_default_ops() {
-    local writer_file
+mount_ecryptfs() {
+    printf "running %b mount.ecryptfs_private%b%b secret %b \\n" \
+        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
 
-    writer_file="$HOME/.config/nvim/writing_init.vim"
+    mount.ecryptfs_private secret
+}
 
-    if [[ -f "$writer_file" ]]; then
-        editor_opt=("-u" "$writer_file")
+update_keyring() {
+    if instert_password && insert_sig; then
+        printf "\\n\\ndone and no errors I guess \\n"
+        mount_ecryptfs
+    else
+        printf "idk but something is fucked \\n"
     fi
 }
 
-open_day() {
+
+open_day_file() {
     local date_file
 
     date_file="${DATE_DATA_FILE}/$(date +%a_%F).txt"
-
 
     if [[ ! -f "$date_file" ]]; then
         printf "making file %s \\n" "date_file"
         printf "today is %s \\n" "$(date '+%a %F')" > "$date_file"
     fi
 
-    "$EDITOR" "${editor_opt[@]}" "$date_file"
+    "$EDITOR" "${EDITOR_OPT[@]}" "$date_file"
 }
 
 open_in_file() {
@@ -104,11 +107,12 @@ open_in_file() {
         printf "* In File\\n\\n" > "$local_in_file"
     fi
 
-    "$EDITOR" "${editor_opt[@]}" "$local_in_file"
+    "$EDITOR" "${EDITOR_OPT[@]}" "$local_in_file"
 }
 
 main() {
     [[ -d "$DATA_FILE" ]] || mkdir "$DATA_FILE"
+
 
     if ((run_ecryptfs_mount)); then
         update_keyring
@@ -117,9 +121,8 @@ main() {
     if ((IN_FILE)); then
         open_in_file
     else
-        open_day
+        open_day_file
     fi
 }
 
-set_default_ops
 main
