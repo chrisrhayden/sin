@@ -6,15 +6,41 @@
 # this assumes that both files and names are encrypted
 # with the same pass phrase
 
-EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
-DATA_FILE="$HOME/secret"
-DATE_DATA_FILE="$DATA_FILE/daily"
-run_ecryptfs_mount=0
-IN_FILE=0
+# shellcheck disable=1090
+source "$(dirname "$(realpath "$0")")"/ecrypt_utils
 
-if [[ ! -f "$HOME/secret/I_AM_A_SECRET" ]]; then
-    run_ecryptfs_mount=1
-fi
+# user settings
+ecryptfs_name='secret'
+
+# set defaults
+UPPER_DIR="$HOME/$ecryptfs_name"
+LOWER_DIR="$HOME/.$ecryptfs_name"
+DAILY_FILE="$UPPER_DIR/daily"
+
+EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
+USE_NOTES=0
+USE_DAY_FILE=0
+UNMOUNT_FS=0
+MOUNT_FS=0
+
+help_and_quit() {
+cat << __EOF__
+S[ecure] I[n] [&] N[otes]
+
+sin [-tuh] [-n file_name] [-E editor_options]
+
+Options:
+    none              open the in file
+    -h --help         print this help then quit
+    -n --notes        open the notes dir
+    -t --today        open todays file
+    -E --editor-opts  append options to the editor call
+    -u --unmount      unmount the SECRET file
+    -m --mount        mount the SECRET file
+
+__EOF__
+exit "$1"
+}
 
 while [[ -n "$1" ]]; do
     case "$1" in
@@ -22,77 +48,37 @@ while [[ -n "$1" ]]; do
             shift
             EDITOR_OPT+=("$1")
             ;;
-        -i)
-            IN_FILE=1
+        -t|--today)
+            USE_DAY_FILE=1
+            ;;
+        -n|--note)
+            USE_NOTES=1
+            ;;
+        -u|--unmount)
+            UNMOUNT_FS=1
+            ;;
+        -m|--mount)
+            MOUNT_FS=1
+            ;;
+        -h|--help)
+            help_and_quit 0
+            ;;
+        *)
+            printf "%bError:%b\\n   bad cli args -> %b%s%b \\n" \
+                "\\033[31m" "\\033[0m" "\\033[33m" "$@" "\\033[0m"
+            help_and_quit 1
             ;;
     esac
     shift
 done
 
-password_msg() {
-printf "%bno secret fs mounted%b" "\\033[31m" "\\033[0m"
-cat << __EOF__
-A user password is needed to unwrapp the ecryptfs password,
-so it can bo loaded in to the kernel key ring.
-
-then the key signature needs to be add to user file
-
-just follow the instructions
-
-pleas enter the user password
-__EOF__
-}
-
-instert_password() {
-    local user_passwd
-
-    password_msg
-    read -resp '--> ' user_passwd
-
-    printf "%s" "$user_passwd" | \
-        ecryptfs-insert-wrapped-passphrase-into-keyring \
-        /home/chris/.ecryptfs/wrapped-passphrase - || return 1
-    unset user_passwd
-    return 0
-}
-
-insert_sig() {
-    local key_sig
-
-    printf "\\nenter the key signature from above \\n"
-    read -resp '--> ' key_sig
-
-    echo -e "${key_sig}\\n${key_sig}" > "$HOME/.ecryptfs/secret.sig" || \
-        return 1
-    unset key_sig
-    return 0
-}
-
-mount_ecryptfs() {
-    printf "running %b mount.ecryptfs_private%b%b secret %b \\n" \
-        "\\033[32m" "\\033[0m" "\\033[1m" "\\033[0m"
-
-    mount.ecryptfs_private secret
-}
-
-update_keyring() {
-    if instert_password && insert_sig; then
-        printf "\\n\\ndone and no errors I guess \\n"
-        mount_ecryptfs
-    else
-        printf "idk but something is fucked \\n"
-    fi
-}
-
-
 open_day_file() {
     local date_file
 
-    date_file="${DATE_DATA_FILE}/$(date +%a_%F).txt"
+    date_file="${DAILY_FILE}/$(date +%a_%F).txt"
 
     if [[ ! -f "$date_file" ]]; then
-        printf "making file %s \\n" "date_file"
-        printf "today is %s \\n" "$(date '+%a %F')" > "$date_file"
+        printf "Today is %s\\n" "$(date '+%a %F')" > "$date_file"
     fi
 
     "$EDITOR" "${EDITOR_OPT[@]}" "$date_file"
@@ -101,7 +87,7 @@ open_day_file() {
 open_in_file() {
     local local_in_file
 
-    local_in_file="$DATA_FILE/in.txt"
+    local_in_file="$UPPER_DIR/in.txt"
 
     if [[ ! -f "$local_in_file" ]]; then
         printf "* In File\\n\\n" > "$local_in_file"
@@ -110,19 +96,31 @@ open_in_file() {
     "$EDITOR" "${EDITOR_OPT[@]}" "$local_in_file"
 }
 
+open_notes() {
+    "$EDITOR" "${EDITOR_OPT[@]}" "$UPPER_DIR/notes"
+}
+
 main() {
-    [[ -d "$DATA_FILE" ]] || mkdir "$DATA_FILE"
-
-
-    if ((run_ecryptfs_mount)); then
-        update_keyring
+    if [[ ! -d "$LOWER_DIR" ]]; then
+        make_new_ecryptfs_file "$ecryptfs_name" "$LOWER_DIR" "$UPPER_DIR"
+    elif ! check_mounts_for_ecryptfs "$ecryptfs_name"; then
+        update_keyring "$ecryptfs_name"
     fi
 
-    if ((IN_FILE)); then
-        open_in_file
-    else
+    if ((USE_DAY_FILE)); then
         open_day_file
+    elif ((USE_NOTES)); then
+        open_notes
+    else
+        open_in_file
     fi
 }
 
-main
+if ((UNMOUNT_FS)); then
+    # from encrypt_utils
+    unmount_ecryptfs "$ecryptfs_name"
+elif ((MOUNT_FS)); then
+    mount_ecryptfs "$ecryptfs_name"
+else
+    main
+fi

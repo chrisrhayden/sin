@@ -1,4 +1,4 @@
-# Created by https://www.gitignore.io/api/linux,git
+# Created by https://www.gitignore.io/api/linux,git,bash,vim
 
 ### Git ###
 *.orig
@@ -18,5 +18,16 @@
 # .nfs files are created when an open file is removed but is still being accessed
 .nfs*
 
+### Vim ###
+# swap
+.sw[a-p]
+.*.sw[a-p]
+# session
+Session.vim
+# temporary
+.netrwhist
+# auto-generated tag files
+tags
 
-# End of https://www.gitignore.io/api/linux,git
+
+# End of https://www.gitignore.io/api/linux,git,bash,vim
