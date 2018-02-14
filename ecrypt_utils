@@ -23,7 +23,7 @@ mount_ecryptfs() {
     local fs_name
     fs_name="$1"
 
-    printf "\\nrunning %b mount.ecryptfs_private%b%b %s %b \\n" \
+    printf "\\nrunning %b mount.ecryptfs_private%b%b %s %b \\n\\n" \
         "\\033[32m" "\\033[0m" "\\033[1m" "$fs_name" "\\033[0m"
 
     mount.ecryptfs_private "$fs_name" || bad_exit "couldn't mount $fs_name"
@@ -34,7 +34,7 @@ unmount_ecryptfs() {
     local fs_name
     fs_name="$1"
 
-    printf "\\nrunning %b umount.ecryptfs_private%b%b %s %b \\n" \
+    printf "\\nrunning %b umount.ecryptfs_private%b%b %s %b \\n\\n" \
         "\\033[32m" "\\033[0m" "\\033[1m" "$fs_name" "\\033[0m"
 
     umount.ecryptfs_private "$fs_name"
@@ -102,6 +102,7 @@ __EOF__
 
 
 # wrap a new pass phrase for both file and file name encryption
+# to the kernel then to the ecryptfs config files for user mounting
 setup_wrapped_password() {
     local user_passwd sig_key config_file passwd_file_name
 
@@ -114,8 +115,8 @@ setup_wrapped_password() {
     printf "\\n"
 
     printf "%s\\n%s" \
-        "$(od -xAn -N30 -w30 /dev/urandom | sed -e 's|\s*||g')" \
-        "$user_passwd" \
+            "$(od -xAn -N30 -w30 /dev/urandom | sed -e 's|\s*||g')" \
+            "$user_passwd" \
         | ecryptfs-wrap-passphrase "$passwd_file_name" \
         || bad_exit "couldn't wrap pass phrase"
 
@@ -124,14 +125,13 @@ setup_wrapped_password() {
           "$passwd_file_name" - \
         || bad_exit "couldn't enter password in to key ring"
 
-    # then again for file name encryption
+    # then again for file name encryption and the sig will be extracted
     sig_key="$(
             printf "%s" "$user_passwd" \
             | ecryptfs-insert-wrapped-passphrase-into-keyring \
               "$passwd_file_name" - \
             | sed -r -e 's|.*\[([[:digit:][:alpha:]]+)\].*|\1|'
         )"
-    printf "the sig above inside [] and the %s should match \\n" "$sig_key"
 
     # enter the sig twice in to the config_file
     printf "%s\\n%s\\n" "$sig_key" "$sig_key" > "$config_file"
@@ -141,30 +141,32 @@ setup_wrapped_password() {
 
 # the main new ecryptfs func
 make_new_ecryptfs_file() {
-    local ecfs_name up_dir lo_dir config_file
+    local ecfs_name up_dir lo_dir config_file wiki_dir
 
     # get the args
     ecfs_name="$1"
     lo_dir="$2"
     up_dir="$3"
+    wiki_dir="$4"
 
     print_encrypt_msg "$ecfs_name"
 
-    # set the config dir
+    # the config file without ext
     config_file="${HOME}/.ecryptfs/${ecfs_name}"
 
     # make the env files
-    mkdir "$lo_dir" "$up_dir" ".ecryptfs"
+    mkdir "$lo_dir" "$up_dir" "$HOME/.ecryptfs"
 
     # tell ecryptfs where to look
     echo  "$lo_dir $up_dir ecryptfs" > "${config_file}.conf"
 
-    # make a wrapped passwd then add the sigs the ecryptf sig file
+    # make a wrapped passwd then add the sigs the ecryptfs sig file
     setup_wrapped_password "$ecfs_name" "${config_file}.sig"
 
     mount.ecryptfs_private "$ecfs_name"
 
-    # default dirs in secret dir
-    touch "$up_dir/I_AM_A_SECRET"
-    mkdir "$up_dir/daily" "$up_dir/notes"
+    # make default dirs and files
+    touch "${up_dir}/I_AM_A_SECRET"
+    mkdir "${up_dir}/${wiki_dir}" "${up_dir}/notes"
+    mkdir "${up_dir}/${wiki_dir}/diary"
 }
