@@ -28,13 +28,14 @@ Usage:
 
 Options:
     none              open the in file
-    -h --help         print this help then quit
-    -n --notes        open the notes dir
     -i --index        open wiki index
     -d --diary        open todays wiki diary file
-    -E --editor-opts  append options to the editor call
+    -n --notes        open the notes dir
+
     -u --unmount      unmount the SECRET file
     -m --mount        mount the SECRET file
+    -E --editor-opts  append options to the editor call
+    -h --help         print this help then quit
 
 __EOF__
 exit "$1"
