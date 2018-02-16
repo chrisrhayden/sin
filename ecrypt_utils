@@ -19,7 +19,7 @@ check_mounts_for_ecryptfs() {
 }
 
 # the mount functions need the SECRET fs name
-mount_ecryptfs() {
+mount_ecrypt_utils() {
     local fs_name
     fs_name="$1"
 
@@ -30,7 +30,7 @@ mount_ecryptfs() {
     return 0
 }
 
-unmount_ecryptfs() {
+unmount_ecrypt_utils() {
     local fs_name
     fs_name="$1"
 
@@ -38,6 +38,7 @@ unmount_ecryptfs() {
         "\\033[32m" "\\033[0m" "\\033[1m" "$fs_name" "\\033[0m"
 
     umount.ecryptfs_private "$fs_name"
+    return 0
 }
 
 # mount existing ecryptfs, called from update_keyring
