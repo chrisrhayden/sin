@@ -143,9 +143,9 @@ file_dispatch() {
     fi
 }
 
-if ((UNMOUNT_FS)); then
+if ((MOUNT_FS)); then
     mount_ecrypt_utils "$ECRYPTFS_NAME"
-elif ((MOUNT_FS)); then
+elif ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
 else
     file_dispatch

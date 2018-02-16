@@ -77,7 +77,7 @@ update_keyring() {
     password_msg
     insert_password "$ecryptfs_name"
 
-    mount_ecryptfs "$ecryptfs_name"
+    mount_ecrypt_utils "$ecryptfs_name"
 
     [[ ! -f "$HOME/$ecryptfs_name/I_AM_A_SECRET" ]] \
         && bad_exit "no lock file pleas manually check $ecryptfs_name files"
