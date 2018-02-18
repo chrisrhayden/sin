@@ -4,27 +4,29 @@
 # shellcheck disable=1090
 source "$(dirname "$(realpath "$0")")"/ecrypt_utils
 
-help_and_quit() {
+print_help() {
 cat << __EOF__
 S[ecure] I[n] [&] N[otes]
 
 Usage:
-    sin [-hndum] [-w NAME] [-E editor_options]
+    sin [-E editor_options] [-hndum] [-w NAME]
 
 Options:
     none                  open the in file
     -i --index            open wiki index
+    -t --tasks            open the task file
     -d --diary            open todays wiki diary file
     -n --notes            open the notes dir
     -w --wiki-file NAME   open a file by NAME in the main wiki dir
+    -E --editor-opts      append options to the editor call,
+                          NOTE: must be set first to take affect
 
     -u --unmount          unmount the SECRET file
     -m --mount            mount the SECRET file
-    -E --editor-opts      append options to the editor call
     -h --help             print this help then quit
+    -H --help-noq         print this help but dont quit
 
 __EOF__
-exit "$1"
 }
 
 # user settings
@@ -35,62 +37,14 @@ EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
 # defaults
 UPPER_DIR="$HOME/$ECRYPTFS_NAME"
 LOWER_DIR="$HOME/.$ECRYPTFS_NAME"
-the_generic_file=''
-
 UNMOUNT_FS=0
 MOUNT_FS=0
-USE_NOTES_DIR=0
-USE_DIARY_FILE=0
-USE_INDEX_FILE=0
-USE_GENERIC_FILE=0
 
-# get cli args and set options accordingly
-while [[ -n "$1" ]]; do
-    case "$1" in
-        -E|--editor-opt)
-            shift
-            EDITOR_OPT+=("$1")
-            ;;
-        -n|--note)
-            USE_NOTES_DIR=1
-            ;;
-        -d|--diary)
-            USE_DIARY_FILE=1
-            ;;
-        -i|--index)
-            USE_INDEX_FILE=1
-            ;;
-        -w|--wiki-file)
-            USE_GENERIC_FILE=1
-            shift
-            the_generic_file="$1"
-            ;;
-        -u|--unmount)
-            UNMOUNT_FS=1
-            ;;
-        -m|--mount)
-            MOUNT_FS=1
-            ;;
-        -h|--help)
-            help_and_quit 0
-            ;;
-        *)  # anything not above
-            printf "%bError:%b\\n   bad cli args -> %b%s%b \\n" \
-                "\\033[31m" "\\033[0m" "\\033[33m" "$@" "\\033[0m"
-            help_and_quit 1
-            ;;
-    esac
-    # so the loop will finish
-    shift
-done
-
-# try to open note dir
 open_notes() {
     "$EDITOR" "${EDITOR_OPT[@]}" "$UPPER_DIR/notes" \
         || bad_exit 'editor cant open dirs'
 }
 
-# open wiki diary entry
 open_diary_entry() {
     local diary_file
     diary_file="${UPPER_DIR}/${WIKI_DIR_NAME}/diary/$(date +%F).wiki"
@@ -105,48 +59,71 @@ open_diary_entry() {
 # open a file in the wiki dir, $1 will be file name
 open_wiki_file() {
     local local_in_file the_wiki_file
-
     the_wiki_file="$1"
 
     local_in_file="$UPPER_DIR/${WIKI_DIR_NAME}/${the_wiki_file}.wiki"
 
-    if [[ ! -f "$local_in_file" ]]; then
-        printf "= In File =\\n" > "$local_in_file"
-    fi
-
     "$EDITOR" "${EDITOR_OPT[@]}" "$local_in_file"
 }
 
-file_dispatch() {
-    if [[ ! -d "$LOWER_DIR" ]]; then
-        make_new_ecryptfs_file \
-            "$ECRYPTFS_NAME" "$LOWER_DIR" "$UPPER_DIR" "$WIKI_DIR_NAME"
-    elif ! check_mounts_for_ecryptfs "$ECRYPTFS_NAME"; then
-        update_keyring "$ECRYPTFS_NAME"
-    fi
+if [[ ! -d "$LOWER_DIR" ]]; then
+    make_new_ecryptfs_file \
+        "$ECRYPTFS_NAME" "$LOWER_DIR" "$UPPER_DIR" "$WIKI_DIR_NAME"
+elif ! check_mounts_for_ecryptfs "$ECRYPTFS_NAME"; then
+    update_keyring "$ECRYPTFS_NAME"
+fi
 
-    if ((USE_NOTES_DIR)); then
-        open_notes
-
-    elif ((USE_DIARY_FILE)); then
-        open_diary_entry
-
-    elif ((USE_INDEX_FILE)); then
-        open_wiki_file 'index'
-
-    elif ((USE_GENERIC_FILE)); then
-        open_wiki_file "$the_generic_file"
-
-    # open the in.wiki file
-    else
-        open_wiki_file 'in'
-    fi
-}
+# get cli args and set options accordingly
+while [[ -n "$1" ]]; do
+    case "$1" in
+        -E|--editor-opt)
+            shift
+            EDITOR_OPT+=("$1")
+            ;;
+        -n|--note)
+            open_notes
+            ;;
+        -d|--diary)
+            open_diary_entry
+            ;;
+        -i|--index)
+            open_wiki_file 'index'
+            ;;
+        -t|--tasks)
+            open_wiki_file 'tasks'
+            ;;
+        -w|--wiki-file)
+            shift
+            open_wiki_file "$1"
+            ;;
+        -u|--unmount)
+            UNMOUNT_FS=1
+            ;;
+        -m|--mount)
+            MOUNT_FS=1
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        -H|--help-noq)
+            print_help
+            ;;
+        *)  # anything not above
+            printf "%bError:%b\\n   bad cli args -> %b%s%b \\n" \
+                '\033[31m' '\033[0m' '\033[33m' "$@" '\033[0m'
+            print_help
+            exit 1
+            ;;
+    esac
+    # shift will remove $1 and move $2 down so the loop will finish
+    shift
+done
 
 if ((MOUNT_FS)); then
     mount_ecrypt_utils "$ECRYPTFS_NAME"
 elif ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
 else
-    file_dispatch
+    open_wiki_file 'in'
 fi

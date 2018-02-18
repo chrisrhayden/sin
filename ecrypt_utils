@@ -167,7 +167,8 @@ make_new_ecryptfs_file() {
     mount.ecryptfs_private "$ecfs_name"
 
     # make default dirs and files
-    touch "${up_dir}/I_AM_A_SECRET"
     mkdir "${up_dir}/${wiki_dir}" "${up_dir}/notes"
     mkdir "${up_dir}/${wiki_dir}/diary"
+    touch "${up_dir}/I_AM_A_SECRET"
+    printf "= In =\\n" > "${up_dir}/${wiki_dir}/in.wiki"
 }
