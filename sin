@@ -39,6 +39,7 @@ UPPER_DIR="$HOME/$ECRYPTFS_NAME"
 LOWER_DIR="$HOME/.$ECRYPTFS_NAME"
 UNMOUNT_FS=0
 MOUNT_FS=0
+USE_IN_FILE=0
 
 open_notes() {
     "$EDITOR" "${EDITOR_OPT[@]}" "$UPPER_DIR/notes" \
@@ -72,6 +73,8 @@ if [[ ! -d "$LOWER_DIR" ]]; then
 elif ! check_mounts_for_ecryptfs "$ECRYPTFS_NAME"; then
     update_keyring "$ECRYPTFS_NAME"
 fi
+
+[[ -z "$1" ]] && USE_IN_FILE=1
 
 # get cli args and set options accordingly
 while [[ -n "$1" ]]; do
@@ -124,6 +127,6 @@ if ((MOUNT_FS)); then
     mount_ecrypt_utils "$ECRYPTFS_NAME"
 elif ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
-else
+elif ((USE_IN_FILE)); then
     open_wiki_file 'in'
 fi
