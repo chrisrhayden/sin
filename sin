@@ -1,6 +1,8 @@
 #!/bin/bash
 # a wrapper around ecryptfs and a few short cuts for vimwiki
 
+
+# follow all symlinks and get just the dirname
 # shellcheck disable=1090
 source "$(dirname "$(realpath "$0")")"/ecrypt_utils
 
