@@ -2,16 +2,16 @@
 
 # called from multiple places
 #############################
-bad_exit() { printf "%b%s \\n" "\\033[31m" "$1"; exit 1; }
+bad_exit() { printf '%b%s \n' '\033[31m' "$1"; exit 1; }
 
 check_mounts_for_ecryptfs() {
-    local fs_name greput
+    local fs_name grepput
     fs_name="$1"
 
-    greput="$(grep -r "$fs_name.*ecryptfs" /proc/mounts)"
+    grepput="$(grep -r "$fs_name.*ecryptfs" /proc/mounts)"
 
     # if grep found a match then the fs is mounted
-    if [[ -n "$greput" ]]; then
+    if [[ -n "$grepput" ]]; then
         return 0
     else
         return 1
@@ -23,8 +23,8 @@ mount_ecrypt_utils() {
     local fs_name
     fs_name="$1"
 
-    printf "\\nrunning %b mount.ecryptfs_private%b%b %s %b \\n\\n" \
-        "\\033[32m" "\\033[0m" "\\033[1m" "$fs_name" "\\033[0m"
+    printf '\nrunning %b mount.ecryptfs_private%b%b %s %b \n\n' \
+        '\033[32m' '\033[0m' '\033[1m' "$fs_name" '\033[0m'
 
     mount.ecryptfs_private "$fs_name" || bad_exit "couldn't mount $fs_name"
     return 0
@@ -34,8 +34,8 @@ unmount_ecrypt_utils() {
     local fs_name
     fs_name="$1"
 
-    printf "\\nrunning %b umount.ecryptfs_private%b%b %s %b \\n\\n" \
-        "\\033[32m" "\\033[0m" "\\033[1m" "$fs_name" "\\033[0m"
+    printf '\nrunning %b umount.ecryptfs_private%b%b %s %b \n\n' \
+        '\033[32m' '\033[0m' '\033[1m' "$fs_name" '\033[0m'
 
     umount.ecryptfs_private "$fs_name"
     return 0
@@ -47,7 +47,7 @@ insert_password() {
     local user_passwd fs_name
     fs_name="/home/chris/.ecryptfs/wrapped-passphrase-$1"
 
-    printf "pleas enter the user password \\n"
+    printf 'pleas enter the user password \n'
     read -resp '--> ' user_passwd
 
     printf "%s" "$user_passwd" | \
@@ -61,7 +61,7 @@ insert_password() {
 
 
 password_msg() {
-printf "%bno secret fs mounted %b \\n" "\\033[31m" "\\033[0m"
+printf '%bno secret fs mounted %b \n' '\033[31m' '\033[0m'
 cat << __EOF__
 
 A user password is needed to unwrapp the ecryptfs password,
@@ -82,14 +82,14 @@ update_keyring() {
     [[ ! -f "$HOME/$ecryptfs_name/I_AM_A_SECRET" ]] \
         && bad_exit "no lock file pleas manually check $ecryptfs_name files"
 
-    printf "\\n\\ndone and no errors I guess \\n"
+    printf '\n\ndone and no errors I guess \n'
 }
 
 # a new ecryptfs setup
 ##############################
 print_encrypt_msg() {
-printf "The ecryptfs %b%s%b is not found, \\n" \
-    "\\033[33m" "$1" "\\033[0m"
+printf 'The ecryptfs %b%s%b is not found, \n' \
+    '\033[33m' "$1" '\033[0m'
 
 cat << __EOF__
 
@@ -111,31 +111,31 @@ setup_wrapped_password() {
 
     config_file="$2"
 
-    printf "peas provide the user password \\n"
+    printf 'peas provide the user password \n'
     read -resp '--> ' user_passwd
     printf "\\n"
 
-    printf "%s\\n%s" \
+    printf '%s\n%s' \
             "$(od -xAn -N30 -w30 /dev/urandom | sed -e 's|\s*||g')" \
             "$user_passwd" \
         | ecryptfs-wrap-passphrase "$passwd_file_name" \
         || bad_exit "couldn't wrap pass phrase"
 
-    printf "%s" "$user_passwd" \
+    printf '%s' "$user_passwd" \
         | ecryptfs-insert-wrapped-passphrase-into-keyring \
           "$passwd_file_name" - \
         || bad_exit "couldn't enter password in to key ring"
 
     # then again for file name encryption and the sig will be extracted
     sig_key="$(
-            printf "%s" "$user_passwd" \
+            printf '%s' "$user_passwd" \
             | ecryptfs-insert-wrapped-passphrase-into-keyring \
               "$passwd_file_name" - \
             | sed -r -e 's|.*\[([[:digit:][:alpha:]]+)\].*|\1|'
         )"
 
     # enter the sig twice in to the config_file
-    printf "%s\\n%s\\n" "$sig_key" "$sig_key" > "$config_file"
+    printf '%s\n%s\n' "$sig_key" "$sig_key" > "$config_file"
 
     unset user_passwd sig_key
 }
@@ -170,5 +170,5 @@ make_new_ecryptfs_file() {
     mkdir "${up_dir}/${wiki_dir}" "${up_dir}/notes"
     mkdir "${up_dir}/${wiki_dir}/diary"
     touch "${up_dir}/I_AM_A_SECRET"
-    printf "= In =\\n" > "${up_dir}/${wiki_dir}/in.wiki"
+    printf '= In =\n' > "${up_dir}/${wiki_dir}/in.wiki"
 }
