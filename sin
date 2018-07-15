@@ -26,7 +26,6 @@ Options:
     -u --unmount          unmount the SECRET file
     -m --mount            mount the SECRET file
     -h --help             print this help then quit
-    -H --help-noq         print this help but dont quit
 
 __EOF__
 }
@@ -34,6 +33,7 @@ __EOF__
 # user settings
 ECRYPTFS_NAME='secret'
 WIKI_DIR_NAME='main_wiki'
+WIKI_FILE_NAME='index'
 EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
 
 # defaults
@@ -99,7 +99,7 @@ while [[ -n "$1" ]]; do
             ;;
         -w|--wiki-file)
             shift
-            open_wiki_file "$1"
+            WIKI_FILE_NAME="$1"
             ;;
         -u|--unmount)
             UNMOUNT_FS=1
@@ -110,9 +110,6 @@ while [[ -n "$1" ]]; do
         -h|--help)
             print_help
             exit 0
-            ;;
-        -H|--help-noq)
-            print_help
             ;;
         *)  # anything not above
             printf "%bError:%b\\n   bad cli args -> %b%s%b \\n" \
@@ -130,5 +127,5 @@ if ((MOUNT_FS)); then
 elif ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
 elif ((USE_IN_FILE)); then
-    open_wiki_file 'in'
+    open_wiki_file "$WIKI_FILE_NAME"
 fi
