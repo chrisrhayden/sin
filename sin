@@ -61,9 +61,9 @@ check_for_ecryptfs() {
     if  [[ ! -d ${HOME}/${1} ]] \
         || [[ ! -d ${HOME}/.${1} ]] \
         || [[ ! -d ${HOME}/.ecryptfs ]] \
-        || [[ ! -e ${HOME}/.ecryptfs/${1}.conf ]] \
-        || [[ ! -e ${HOME}/.ecryptfs/${1}.sig ]] \
-        || [[ ! -e ${HOME}/.ecryptfs/${1}_wrapped_passphrase ]];
+        || [[ ! -f ${HOME}/.ecryptfs/${1}.conf ]] \
+        || [[ ! -f ${HOME}/.ecryptfs/${1}.sig ]] \
+        || [[ ! -f ${HOME}/.ecryptfs/${1}_wrapped_passphrase ]];
     then
         return 1
     else
