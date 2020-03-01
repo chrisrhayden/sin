@@ -1,38 +1,38 @@
 #!/bin/bash
-# a wrapper around ecryptfs and a few short cuts for vimwiki
 
+# a wrapper around ecryptfs and a way to open a given wiki
 
-# follow all symlinks and get just the dirname
-# shellcheck disable=1090
-source "$(dirname "$(realpath "$0")")"/ecrypt_utils
+# get just the dir name, this is best way I know right now
+source "$(dirname "$0")"/ecrypt_utils
 
 print_help() {
-cat << __EOF__
-S[ecure] I[n] [&] N[otes]
-
+printf "
 Usage:
-    sin [-E editor_options] [-hndum] [-w NAME]
+sin [ -E OPTS | -e OPTS ] [-w NAME] [-n NAME] [NAME]
+    | (-m NAME | -u NAME | --help)
+
+Default:
+if run without args sin will try and mount the ecryptfs if its not already
+and open the user specified index file
 
 Options:
-    none                  open the in file
-    -i --index            open wiki index
-    -t --tasks            open the task file
-    -d --diary            open todays wiki diary file
-    -n --notes            open the notes dir
+    NAME                  to use a different ecryptfs name
     -w --wiki-file NAME   open a file by NAME in the main wiki dir
     -e --editor-opts      new options for the editor call,
     -E --add-editor-opts  append options to the editor call,
 
+    -n --new-ecryptfs     make a new ecryptfs dir structure and config
+
+    these are exclusive
     -u --unmount          unmount the SECRET file
     -m --mount            mount the SECRET file
     -h --help             print this help then quit
 
-__EOF__
+"
 }
 
 # user settings
-ECRYPTFS_NAME='secret'
-WIKI_DIR_NAME='main_wiki'
+ECRYPTFS_NAME='notebook'
 WIKI_FILE_NAME='index'
 EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
 
@@ -41,16 +41,14 @@ UPPER_DIR="$HOME/$ECRYPTFS_NAME"
 LOWER_DIR="$HOME/.$ECRYPTFS_NAME"
 UNMOUNT_FS=0
 MOUNT_FS=0
-USE_IN_FILE=0
+USE_INDEX_FILE=0
+NEW_ECRYPTFS=0
 
-open_notes() {
-    "$EDITOR" "${EDITOR_OPT[@]}" "$UPPER_DIR/notes" \
-        || bad_exit 'editor cant open dirs'
-}
+[[ -z "$1" ]] && USE_INDEX_FILE=1
 
 open_diary_entry() {
     local diary_file
-    diary_file="${UPPER_DIR}/${WIKI_DIR_NAME}/diary/$(date +%F).wiki"
+    diary_file="${UPPER_DIR}/diary/$(date +%F).wiki"
 
     if [[ ! -f "$diary_file" ]]; then
         printf "Today is %s\\n" "$(date '+%a %F')" > "$diary_file"
@@ -61,49 +59,35 @@ open_diary_entry() {
 
 # open a file in the wiki dir, $1 will be file name
 open_wiki_file() {
-    local local_in_file the_wiki_file
-    the_wiki_file="$1"
+    local local_in_file
 
-    local_in_file="$UPPER_DIR/${WIKI_DIR_NAME}/${the_wiki_file}.wiki"
+    local_in_file="$UPPER_DIR/${1}.wiki"
+
+    if [[ ! -e $local_in_file ]]; then
+        printf 'no file named %s\n' "$local_in_file"
+        return 0
+    fi
 
     "$EDITOR" "${EDITOR_OPT[@]}" "$local_in_file"
 }
 
-if [[ ! -d "$LOWER_DIR" ]]; then
-    make_new_ecryptfs_file \
-        "$ECRYPTFS_NAME" "$LOWER_DIR" "$UPPER_DIR" "$WIKI_DIR_NAME"
-elif ! check_mounts_for_ecryptfs "$ECRYPTFS_NAME"; then
-    update_keyring "$ECRYPTFS_NAME"
-fi
-
-[[ -z "$1" ]] && USE_IN_FILE=1
-
 # get cli args and set options accordingly
 while [[ -n "$1" ]]; do
     case "$1" in
-        -E|--add-editor-opt)
+        -n|--new-ecryptfs)
+            NEW_ECRYPTFS=1
+            ;;
+        -w|--wiki-file)
             shift
-            EDITOR_OPT+=("$1")
+            WIKI_FILE_NAME="$1"
             ;;
         -e|--editor-opt)
             shift
             EDITOR_OPT=("$1")
             ;;
-        -n|--note)
-            open_notes
-            ;;
-        -d|--diary)
-            open_diary_entry
-            ;;
-        -i|--index)
-            WIKI_FILE_NAME='index'
-            ;;
-        -t|--tasks)
-            WIKI_FILE_NAME='tasks'
-            ;;
-        -w|--wiki-file)
+        -E|--add-editor-opt)
             shift
-            WIKI_FILE_NAME="$1"
+            EDITOR_OPT+=("$1")
             ;;
         -u|--unmount)
             UNMOUNT_FS=1
@@ -115,21 +99,40 @@ while [[ -n "$1" ]]; do
             print_help
             exit 0
             ;;
-        *)  # anything not above
+        -*)  # anything not above
             printf "%bError:%b\\n   bad cli args -> %b%s%b \\n" \
                 '\033[31m' '\033[0m' '\033[33m' "$@" '\033[0m'
             print_help
             exit 1
+            ;;
+        *)  # any word gets made in to the ECRYPTFS_NAME
+            ECRYPTFS_NAME="$1"
             ;;
     esac
     # shift will remove $1 and move $2 down so the loop will finish
     shift
 done
 
+# make sure it exists
+if ((NEW_ECRYPTFS)); then
+    make_new_ecryptfs_file "$ECRYPTFS_NAME"
+
+elif ! check_for_ecryptfs "$ECRYPTFS_NAME"; then
+    printf 'no ecryptfs named %s\n' "$ECRYPTFS_NAME"
+    exit
+
+elif ! grep --quiet -r "${ECRYPTFS_NAME}.*ecryptfs" /proc/mounts; then
+    mount_existing "$ECRYPTFS_NAME"
+
+fi
+
 if ((MOUNT_FS)); then
     mount_ecrypt_utils "$ECRYPTFS_NAME"
+
 elif ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
-elif ((USE_IN_FILE)); then
+
+elif ((USE_INDEX_FILE)); then
     open_wiki_file "$WIKI_FILE_NAME"
+
 fi

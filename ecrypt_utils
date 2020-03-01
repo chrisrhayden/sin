@@ -1,58 +1,48 @@
 #!/bin/bash
 
-# called from multiple places
-#############################
-bad_exit() { printf '%b%s \n' '\033[31m' "$1"; exit 1; }
+# functions to make and use ecryptfs... umm drives I guess
 
-check_mounts_for_ecryptfs() {
-    local fs_name grepput
-    fs_name="$1"
+bad_exit() {
+    printf '%b%s \n' '\033[31m' "$1"
+    exit 1
+}
 
-    grepput="$(grep -r "$fs_name.*ecryptfs" /proc/mounts)"
-
-    # if grep found a match then the fs is mounted
-    if [[ -n "$grepput" ]]; then
-        return 0
-    else
+# check to see if the given ecryptfs setup exists
+check_for_ecryptfs() {
+    # TODO: make this better
+    if  [[ ! -d ${HOME}/${1} ]] \
+        || [[ ! -d ${HOME}/.${1} ]] \
+        || [[ ! -d ${HOME}/.ecryptfs ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}.conf ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}.sig ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}_wrapped_passphrase ]];
+    then
         return 1
+    else
+        return 0
     fi
 }
 
-# the mount functions need the SECRET fs name
+# these kinda suck
 mount_ecrypt_utils() {
-    local fs_name
-    fs_name="$1"
-
-    printf '\nrunning %b mount.ecryptfs_private%b%b %s %b \n\n' \
-        '\033[32m' '\033[0m' '\033[1m' "$fs_name" '\033[0m'
-
-    mount.ecryptfs_private "$fs_name" || bad_exit "couldn't mount $fs_name"
-    return 0
+    mount.ecryptfs_private "$1" 2>/dev/null || bad_exit "couldn't mount $1"
 }
 
 unmount_ecrypt_utils() {
-    local fs_name
-    fs_name="$1"
-
-    printf '\nrunning %b umount.ecryptfs_private%b%b %s %b \n\n' \
-        '\033[32m' '\033[0m' '\033[1m' "$fs_name" '\033[0m'
-
-    umount.ecryptfs_private "$fs_name"
-    return 0
+    umount.ecryptfs_private "$1"
 }
 
-# mount existing ecryptfs, called from update_keyring
-#####################################################
 insert_password() {
     local user_passwd fs_name
-    fs_name="/home/chris/.ecryptfs/wrapped-passphrase-$1"
+    fs_name="/home/chris/.ecryptfs/${1}_wrapped_passphrase"
 
-    printf 'pleas enter the user password \n'
-    read -resp '--> ' user_passwd
+    printf 'pleas enter the password\n'
+    read -resp ' -> ' user_passwd
+    printf '\n'
 
     printf "%s" "$user_passwd" | \
         ecryptfs-insert-wrapped-passphrase-into-keyring \
-            "$fs_name" - 1>/dev/null \
+            "$fs_name" - &>/dev/null \
         || bad_exit 'insert failed'
 
     unset user_passwd
@@ -60,67 +50,35 @@ insert_password() {
 }
 
 
-password_msg() {
-printf '%bno secret fs mounted %b \n' '\033[31m' '\033[0m'
-cat << __EOF__
+mount_existing() {
+    insert_password "$1"
 
-A user password is needed to unwrapp the ecryptfs password,
-so it can bo loaded in to the kernel key ring.
-
-__EOF__
+    mount_ecrypt_utils "$1"
 }
 
-update_keyring() {
-    local ecryptfs_name
-    ecryptfs_name="$1"
-
-    password_msg
-    insert_password "$ecryptfs_name"
-
-    mount_ecrypt_utils "$ecryptfs_name"
-
-    [[ ! -f "$HOME/$ecryptfs_name/I_AM_A_SECRET" ]] \
-        && bad_exit "no lock file pleas manually check $ecryptfs_name files"
-
-    printf '\n\ndone and no errors I guess \n'
-}
-
-# a new ecryptfs setup
-##############################
-print_encrypt_msg() {
-printf 'The ecryptfs %b%s%b is not found, \n' \
-    '\033[33m' "$1" '\033[0m'
-
-cat << __EOF__
-
-sin will now make it for you
-
-A user password will be enterd twice in to the the kernal key ring,
-once to encrypt file contets then another to encrypt file names
-
-__EOF__
-}
-
-
-# wrap a new pass phrase for both file and file name encryption
-# to the kernel then to the ecryptfs config files for user mounting
+# wrap a new pass phrase
+# enter the password twice in to the kernel for both file and file name encryption
+# also add the password signature to the ecryptfs config files for mounting
 setup_wrapped_password() {
     local user_passwd sig_key config_file passwd_file_name
 
-    passwd_file_name="$HOME/.ecryptfs/wrapped-passphrase-$1"
+    passwd_file_name="${HOME}/.ecryptfs/wrapped-passphrase-${1}"
 
     config_file="$2"
 
-    printf 'peas provide the user password \n'
-    read -resp '--> ' user_passwd
-    printf "\\n"
+    printf 'pleas provide password \n'
+    read -resp ' -> ' user_passwd
+    printf '\n'
 
+    # TODO: use gpg instead
+    # make a random password to be wrapped
     printf '%s\n%s' \
             "$(od -xAn -N30 -w30 /dev/urandom | sed -e 's|\s*||g')" \
             "$user_passwd" \
         | ecryptfs-wrap-passphrase "$passwd_file_name" \
         || bad_exit "couldn't wrap pass phrase"
 
+    # enter password for file contents encryption
     printf '%s' "$user_passwd" \
         | ecryptfs-insert-wrapped-passphrase-into-keyring \
           "$passwd_file_name" - \
@@ -137,26 +95,38 @@ setup_wrapped_password() {
     # enter the sig twice in to the config_file
     printf '%s\n%s\n' "$sig_key" "$sig_key" > "$config_file"
 
+    # make sure variable aren't floating around I guess
     unset user_passwd sig_key
+    return 0
+}
+
+print_encrypt_msg() {
+printf 'The ecryptfs %b%s%b is not found
+
+sin will now make it for you
+
+A user password will be enterd twice in to the the kernal key ring,
+once to encrypt file contets then another to encrypt file names
+
+' '\033[33m' "$1" '\033[0m'
 }
 
 # the main new ecryptfs func
 make_new_ecryptfs_file() {
-    local ecfs_name up_dir lo_dir config_file wiki_dir
+    local ecfs_name up_dir lo_dir config_file
 
     # get the args
     ecfs_name="$1"
     lo_dir="$2"
     up_dir="$3"
-    wiki_dir="$4"
 
     print_encrypt_msg "$ecfs_name"
 
-    # the config file without ext
-    config_file="${HOME}/.ecryptfs/${ecfs_name}"
-
     # make the env files
     mkdir "$lo_dir" "$up_dir" "$HOME/.ecryptfs"
+
+    # the config file without ext
+    config_file="${HOME}/.ecryptfs/${ecfs_name}"
 
     # tell ecryptfs where to look
     echo  "$lo_dir $up_dir ecryptfs" > "${config_file}.conf"
@@ -164,11 +134,7 @@ make_new_ecryptfs_file() {
     # make a wrapped passwd then add the sigs the ecryptfs sig file
     setup_wrapped_password "$ecfs_name" "${config_file}.sig"
 
-    mount.ecryptfs_private "$ecfs_name"
+    mount_ecrypt_utils "$ecfs_name"
 
-    # make default dirs and files
-    mkdir "${up_dir}/${wiki_dir}" "${up_dir}/notes"
-    mkdir "${up_dir}/${wiki_dir}/diary"
-    touch "${up_dir}/I_AM_A_SECRET"
-    printf '= In =\n' > "${up_dir}/${wiki_dir}/in.wiki"
+    # add default setup here here
 }
