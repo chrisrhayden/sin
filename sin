@@ -1,27 +1,46 @@
 #!/bin/bash
 
-# a wrapper around ecryptfs and a way to open a given wiki
+# a wrapper around ecryptfs and a way to open a given wiki file
 
+# this kinda sucks
 # get just the dir name, this is best way I know right now
 source "$(dirname "$0")"/ecrypt_utils
 
+# global variables {{{
+# user settings
+ECRYPTFS_NAME='notebook'
+INDEX_FILE='index'
+EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
+
+# defaults
+UPPER_DIR="$HOME/$ECRYPTFS_NAME"
+LOWER_DIR="$HOME/.$ECRYPTFS_NAME"
+WIKI_FILE_NAME="$INDEX_FILE"
+
+USE_INDEX_FILE=1
+
+UNMOUNT_FS=0
+MOUNT_FS=0
+NEW_ECRYPTFS=0
+# }}}
+
+# help / exit {{{
 print_help() {
 printf "
 Usage:
-sin [ -E OPTS | -e OPTS ] [-w NAME] [-n NAME] [NAME]
-    | (-m NAME | -u NAME | --help)
+    sin [ -E OPTS | -e OPTS ] [-w NAME] [-n NAME] [NAME]
+        | (-m NAME | -u NAME | --help)
 
 Default:
-if run without args sin will try and mount the ecryptfs if its not already
-and open the user specified index file
+    if run without args sin will try and mount the ecryptfs if its not already
+    and open the default wiki file, index.wiki
 
 Options:
-    NAME                  to use a different ecryptfs name
+    NAME                  to use a different ecryptfs name then the default
+    -n --new-ecryptfs     make a new ecryptfs dir structure and config
     -w --wiki-file NAME   open a file by NAME in the main wiki dir
     -e --editor-opts      new options for the editor call,
     -E --add-editor-opts  append options to the editor call,
-
-    -n --new-ecryptfs     make a new ecryptfs dir structure and config
 
     these are exclusive
     -u --unmount          unmount the SECRET file
@@ -31,21 +50,162 @@ Options:
 "
 }
 
-# user settings
-ECRYPTFS_NAME='notebook'
-WIKI_FILE_NAME='index'
-EDITOR_OPT=('-u' "$HOME/.config/nvim/writing_init.vim")
+bad_exit() {
+    printf '%b%s \n' '\033[31m' "$1"
+    exit 1
+}
+# }}}
 
-# defaults
-UPPER_DIR="$HOME/$ECRYPTFS_NAME"
-LOWER_DIR="$HOME/.$ECRYPTFS_NAME"
-UNMOUNT_FS=0
-MOUNT_FS=0
-USE_INDEX_FILE=0
-NEW_ECRYPTFS=0
+# ecryptfs functions {{{
+# functions to make and use ecryptfs... umm drives I guess
+# check env {{{
+# TODO: make this better
+# check to see if the given ecryptfs setup exists
+check_for_ecryptfs() {
+    if  [[ ! -d ${HOME}/${1} ]] \
+        || [[ ! -d ${HOME}/.${1} ]] \
+        || [[ ! -d ${HOME}/.ecryptfs ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}.conf ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}.sig ]] \
+        || [[ ! -e ${HOME}/.ecryptfs/${1}_wrapped_passphrase ]];
+    then
+        return 1
+    else
+        return 0
+    fi
+}
 
-[[ -z "$1" ]] && USE_INDEX_FILE=1
+grep_for_mount() {
+    grep --quiet -r "${ECRYPTFS_NAME}.*ecryptfs" /proc/mounts
+}
+# }}}
 
+# basic wrapper around ecryptfs tools {{{
+# these kinda suck
+mount_ecrypt_utils() {
+    mount.ecryptfs_private "$1" 2>/dev/null || bad_exit "couldn't mount $1"
+}
+
+unmount_ecrypt_utils() {
+    umount.ecryptfs_private "$1"
+}
+
+
+insert_password() {
+    local user_passwd fs_name ecryptfs_name
+
+    ecryptfs_name="$1"
+
+    fs_name="/home/chris/.ecryptfs/${ecryptfs_name}_wrapped_passphrase"
+
+    printf 'enter password for %s\n' "$ecryptfs_name"
+    read -resp ' -> ' user_passwd
+    printf '\n'
+
+    printf "%s" "$user_passwd" | \
+        ecryptfs-insert-wrapped-passphrase-into-keyring \
+            "$fs_name" - &>/dev/null \
+        || bad_exit 'insert in to keyring failed'
+
+    unset user_passwd
+    return 0
+}
+
+mount_existing() {
+    insert_password "$1"
+    mount_ecrypt_utils "$1"
+}
+# }}}
+
+# make a new ecryptfs {{{
+# wrap a new pass phrase
+# enter the password twice in to the kernel for both file and file name encryption
+# also add the password signature to the ecryptfs config files for mounting
+setup_wrapped_password() {
+    local user_passwd sig_key config_file passwd_file_name
+
+    passwd_file_name="${HOME}/.ecryptfs/wrapped-passphrase-${1}"
+
+    config_file="$2"
+
+    printf 'pleas provide password \n'
+    read -resp ' -> ' user_passwd
+    printf '\n'
+
+    # make a random password to be wrapped
+    if ! printf '%s\n%s' \
+        "$(gpg --gen-random --armor 1 14 | sed '/=$//')" "$user_passwd" \
+        | ecryptfs-wrap-passphrase "$passwd_file_name" -;
+    then
+        bad_exit "couldn't wrap pass phrase"
+    fi
+
+    # enter password for file contents encryption
+    if ! printf '%s' "$user_passwd" \
+        | ecryptfs-insert-wrapped-passphrase-into-keyring \
+          "$passwd_file_name" -;
+    then
+        bad_exit "couldn't enter password in to key ring"
+    fi
+
+    # then again for file name encryption and the sig will be extracted
+    sig_key="$(
+            printf '%s' "$user_passwd" \
+            | ecryptfs-insert-wrapped-passphrase-into-keyring \
+              "$passwd_file_name" - \
+            | sed -r -e 's|.*\[([[:digit:][:alpha:]]+)\].*|\1|'
+        )"
+
+    # enter the sig twice in to the config_file
+    printf '%s\n%s\n' "$sig_key" "$sig_key" > "$config_file"
+
+    # make sure variable aren't floating around I guess
+    unset user_passwd sig_key
+    return 0
+}
+
+print_encrypt_msg() {
+printf 'The ecryptfs %b%s%b is not found
+
+sin will now make it for you
+
+A user password will be enterd twice in to the the kernal key ring,
+once to encrypt file contets then another to encrypt file names
+
+' '\033[33m' "$1" '\033[0m'
+}
+
+# the main new ecryptfs func
+make_new_ecryptfs_file() {
+    local ecfs_name up_dir lo_dir config_file
+
+    # get the args
+    ecfs_name="$1"
+    lo_dir="$2"
+    up_dir="$3"
+
+    print_encrypt_msg "$ecfs_name"
+
+    # make the env files
+    mkdir "$lo_dir" "$up_dir" "$HOME/.ecryptfs"
+
+    # the config file without ext
+    config_file="${HOME}/.ecryptfs/${ecfs_name}"
+
+    # tell ecryptfs where to look
+    echo  "$lo_dir $up_dir ecryptfs" > "${config_file}.conf"
+
+    # make a wrapped passwd then add the sigs the ecryptfs sig file
+    setup_wrapped_password "$ecfs_name" "${config_file}.sig"
+
+    mount_ecrypt_utils "$ecfs_name"
+
+    # add default setup here here
+}
+# }}}
+# }}}
+
+# wiki functions {{{
 open_diary_entry() {
     local diary_file
     diary_file="${UPPER_DIR}/diary/$(date +%F).wiki"
@@ -70,7 +230,9 @@ open_wiki_file() {
 
     "$EDITOR" "${EDITOR_OPT[@]}" "$local_in_file"
 }
+# }}}
 
+# parse args {{{
 # get cli args and set options accordingly
 while [[ -n "$1" ]]; do
     case "$1" in
@@ -105,34 +267,36 @@ while [[ -n "$1" ]]; do
             print_help
             exit 1
             ;;
-        *)  # any word gets made in to the ECRYPTFS_NAME
+        *)  # the last word on the cli gets made in to the ECRYPTFS_NAME
             ECRYPTFS_NAME="$1"
             ;;
     esac
     # shift will remove $1 and move $2 down so the loop will finish
     shift
 done
+# }}}
+
+# run logic {{{
 
 # make sure it exists
 if ((NEW_ECRYPTFS)); then
     make_new_ecryptfs_file "$ECRYPTFS_NAME"
 
 elif ! check_for_ecryptfs "$ECRYPTFS_NAME"; then
-    printf 'no ecryptfs named %s\n' "$ECRYPTFS_NAME"
-    exit
+    bad_exit "no ecryptfs named $ECRYPTFS_NAME"
 
-elif ! grep --quiet -r "${ECRYPTFS_NAME}.*ecryptfs" /proc/mounts; then
+elif ! grep_for_mount; then
     mount_existing "$ECRYPTFS_NAME"
-
 fi
 
-if ((MOUNT_FS)); then
-    mount_ecrypt_utils "$ECRYPTFS_NAME"
-
-elif ((UNMOUNT_FS)); then
+# now do the thing
+if ((UNMOUNT_FS)); then
     unmount_ecrypt_utils "$ECRYPTFS_NAME"
 
-elif ((USE_INDEX_FILE)); then
+elif ((MOUNT_FS != 1)) || [[ $WIKI_FILE_NAME != $INDEX_FILE ]]; then
     open_wiki_file "$WIKI_FILE_NAME"
 
 fi
+# }}}
+
+# vim: foldmethod=marker
