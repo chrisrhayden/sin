@@ -2,10 +2,6 @@
 
 # a wrapper around ecryptfs and a way to open a given wiki file
 
-# this kinda sucks
-# get just the dir name, this is best way I know right now
-source "$(dirname "$0")"/ecrypt_utils
-
 # global variables {{{
 # user settings
 ECRYPTFS_NAME='notebook'
