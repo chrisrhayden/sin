@@ -1,0 +1,17 @@
+#compdef sin
+
+local -a subcmd
+
+subcmd=(
+    {-n,--new-ecryptfs}'[make a new ecryptfs]'
+    {-w,--wiki-file}'[open a wiki file]:filename:_files -W ~/notebook'
+    {-e,--editor-args}'[diffrent editor args]'
+    {-E,--add-editor-args}'[append to editor args]'
+    {-u,--unmount}'[unmount the notebook]'
+    {-m,--mount}'[mount the notebook]'
+    {-h,--help}'[show the help message]'
+)
+
+_arguments ${subcmd[@]}
+
+# vim: filetype=zsh

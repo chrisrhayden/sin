@@ -2,43 +2,38 @@
 
 # a wrapper around ecryptfs and a way to open a given wiki file
 
-# 2154 is referenced but not assigned but we are using them for global settings
-# TODO: fix 2206
-# 2206 is to use a mapfile but that annoying but i should fix it i guess
-
 # global variables {{{
 # user settings or defaults
-{
-# shellcheck disable=2154
 if [[ -z ${sin_notebook+x} ]]; then
     SIN_NOTEBOOK='notebook'
 else
     SIN_NOTEBOOK="$sin_notebook"
 fi
 
-# shellcheck disable=2154
+if [[ -z ${sin_index_file+x} ]]; then
+    WIKI_FILE_NAME='index'
+else
+    WIKI_FILE_NAME="$sin_index_file"
+fi
+
 if [[ -z ${sin_wiki_ext+x} ]]; then
     SIN_EXT='wiki'
 else
     SIN_EXT="$sin_wiki_ext"
 fi
 
-# shellcheck disable=2154
-if [[ -z ${sin_index_file+x} ]]; then
-    WIKI_FILE_NAME="index.${SIN_EXT}"
-else
-    WIKI_FILE_NAME="$sin_index_file"
-fi
-
-# shellcheck disable=2154
 if [[ -z ${sin_editor_args+x} ]]; then
     EDITOR_SIN_CMD=( "$EDITOR" )
 else
-    # shellcheck disable=2206
-    EDITOR_SIN_CMD=( "$EDITOR" ${sin_editor_args[@]})
+    EDITOR_SIN_CMD=( "$EDITOR" ${sin_editor_args[@]} )
 fi
-}
 
+# internal vars
+UPPER_DIR="$HOME/$SIN_NOTEBOOK"
+LOWER_DIR="$HOME/.$SIN_NOTEBOOK"
+
+UNMOUNT_FS=0
+MOUNT_FS=0
 NEW_ECRYPTFS=0
 # }}}
 
@@ -46,7 +41,8 @@ NEW_ECRYPTFS=0
 print_help() {
 printf "
 Usage:
-    sin [ -E OPTS | -e OPTS ] [-w NAME] [-n NAME] [NAME] | --help
+    sin [ -E OPTS | -e OPTS ] [-w NAME] [-n NAME] [NAME]
+        | (-m NAME | -u NAME | --help)
 
 Default:
     if run without args sin will try and mount the ecryptfs if its not already
@@ -58,7 +54,12 @@ Options:
     -w --wiki-file NAME   open a file by NAME in the main wiki dir
     -e --editor-args      new options for the editor call,
     -E --add-editor-args  append options to the editor call,
+
+    these are exclusive
+    -u --unmount          unmount the SECRET file
+    -m --mount            mount the SECRET file
     -h --help             print this help then quit
+
 "
 }
 
@@ -102,11 +103,13 @@ unmount_ecrypt_utils() {
 
 
 insert_password() {
-    local user_passwd fs_name
+    local user_passwd fs_name notebook
 
-    fs_name="/home/chris/.ecryptfs/${1}_wrapped_passphrase"
+    notebook="$1"
 
-    printf 'enter password for %s\n' "$1"
+    fs_name="/home/chris/.ecryptfs/${notebook}_wrapped_passphrase"
+
+    printf 'enter password for %s\n' "$notebook"
     read -resp ' -> ' user_passwd
     printf '\n'
 
@@ -195,8 +198,8 @@ make_new_ecryptfs_file() {
 
     # get the args
     ecfs_name="$1"
-    lo_dir="${HOME}/${SIN_NOTEBOOK}/.${1}"
-    up_dir="${HOME}/${SIN_NOTEBOOK}/$1"
+    lo_dir="${HOME}/.${1}"
+    up_dir="${HOME}/$1"
 
     print_encrypt_msg "$ecfs_name"
 
@@ -222,22 +225,24 @@ make_new_ecryptfs_file() {
 # wiki functions {{{
 # open a file in the wiki dir, $1 will be file name
 open_wiki_file() {
-    local wiki_file
+    local file_path wiki_file
 
-    wiki_file="$HOME/${SIN_NOTEBOOK}/$1"
+    file_path="$1"
 
-    # unless the file exist add the sin wiki ext
-    if [[ ! -e $wiki_file ]]; then
+    wiki_file="$UPPER_DIR/$file_path"
+
+    # if the file dose not exists try it with a wiki ext
+    if [[ ! -e $wiki_file ]] && [[ -e "${wiki_file}.${SIN_EXT}" ]]; then
         wiki_file="${wiki_file}.${SIN_EXT}"
     fi
 
+    # echo "${EDITOR_SIN_CMD[@]}" "$wiki_file"
     "${EDITOR_SIN_CMD[@]}" "$wiki_file"
 }
 
 open_diary_entry() {
     local diary_file
-
-    diary_file="${HOME}/${SIN_NOTEBOOK}/diary/$(date +%F).${SIN_EXT}"
+    diary_file="${UPPER_DIR}/diary/$(date +%F).wiki"
 
     if [[ ! -f "$diary_file" ]]; then
         printf "Today is %s\\n" "$(date '+%a %F')" > "$diary_file"
@@ -265,6 +270,12 @@ while [[ -n "$1" ]]; do
         -E|--add-editor-args)
             shift
             EDITOR_SIN_ARGS+=("$1")
+            ;;
+        -u|--unmount)
+            UNMOUNT_FS=1
+            ;;
+        -m|--mount)
+            MOUNT_FS=1
             ;;
         -h|--help)
             print_help
@@ -299,11 +310,21 @@ elif ! check_for_ecryptfs "$SIN_NOTEBOOK"; then
 # check if the ecryptfs is mounted
 elif ! grep_for_mount; then
     if ! mount_existing "$SIN_NOTEBOOK"; then
-        bad_exit "cant mount existing notebook -- $SIN_NOTEBOOK"
+        bad_exit "cant mount existing"
     fi
 fi
 
-# if we get here open
+# run on off commands
+if ((UNMOUNT_FS)); then
+    unmount_ecrypt_utils "$SIN_NOTEBOOK"
+
+    exit 0
+elif ((MOUNT_FS)); then
+    # the drive will be mounted by the earlier conditionals so just exit
+    exit 0
+fi
+
+# if we get here open 
 open_wiki_file "$WIKI_FILE_NAME"
 # }}}
 
