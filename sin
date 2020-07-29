@@ -18,7 +18,7 @@ fi
 
 # shellcheck disable=2154
 if [[ -z ${sin_wiki_ext+x} ]]; then
-    SIN_EXT='wiki'
+    SIN_EXT='md'
 else
     SIN_EXT="$sin_wiki_ext"
 fi
@@ -227,7 +227,7 @@ open_wiki_file() {
     wiki_file="$HOME/${SIN_NOTEBOOK}/$1"
 
     # unless the file exist add the sin wiki ext
-    if [[ ! -e $wiki_file ]]; then
+    if [[ ! -e $wiki_file && $wiki_file != *.${SIN_EXT} ]]; then
         wiki_file="${wiki_file}.${SIN_EXT}"
     fi
 
